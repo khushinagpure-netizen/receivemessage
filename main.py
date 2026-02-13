@@ -1,13 +1,13 @@
 import os
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from dotenv import load_dotenv
 
-# Load .env
+# ---------------------------
+# Load environment variables
+# ---------------------------
 load_dotenv()
-
-# Get VERIFY_TOKEN from environment
-VERIFY_TOKEN = os.getenv("VERIFY_TOKEN")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "12345")  # fallback if not set
 
 app = FastAPI()
 
@@ -16,6 +16,10 @@ app = FastAPI()
 # ---------------------------
 @app.get("/webhook")
 async def verify_webhook(request: Request):
+    """
+    Meta sends a GET request to verify the webhook.
+    We respond with the hub.challenge if the VERIFY_TOKEN matches.
+    """
     params = request.query_params
     mode = params.get("hub.mode")
     token = params.get("hub.verify_token")
@@ -23,10 +27,10 @@ async def verify_webhook(request: Request):
 
     if mode == "subscribe" and token == VERIFY_TOKEN:
         print("✅ Webhook verified successfully!")
-        return JSONResponse(content=int(challenge))
+        return PlainTextResponse(challenge or "")  # return as plain text
     else:
         print("❌ Webhook verification failed")
-        return JSONResponse(content="Forbidden", status_code=403)
+        return PlainTextResponse("Forbidden", status_code=403)
 
 
 # ---------------------------
@@ -34,12 +38,23 @@ async def verify_webhook(request: Request):
 # ---------------------------
 @app.post("/webhook")
 async def receive_message(request: Request):
-    data = await request.json()
-    print("📩 Received WhatsApp payload:")
-    print(data)
-
+    """
+    Handles incoming WhatsApp messages from Meta.
+    Supports text, image, and document messages.
+    """
     try:
-        messages = data["entry"][0]["changes"][0]["value"].get("messages", [])
+        data = await request.json()
+        print("📩 Received WhatsApp payload:")
+        print(data)
+
+        # Safely extract messages
+        messages = (
+            data.get("entry", [{}])[0]
+                .get("changes", [{}])[0]
+                .get("value", {})
+                .get("messages", [])
+        )
+
         for msg in messages:
             sender = msg.get("from")
             msg_type = msg.get("type")
