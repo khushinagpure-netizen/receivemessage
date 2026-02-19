@@ -423,7 +423,6 @@ async def template_create(request: TemplateCreate):
             return JSONResponse({"error": "Database not configured"}, status_code=503)
         
         headers = get_supabase_headers()
-        
         template_data = {
             "name": request.name,
             "content": request.content,
