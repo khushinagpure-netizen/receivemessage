@@ -181,20 +181,25 @@ async def download_swagger_yaml():
 
 @app.get("/webhook")
 async def verify_webhook(
-    hub_mode: str = Query(None),
-    hub_challenge: str = Query(None),
-    hub_verify_token: str = Query(None)
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_challenge: str = Query(None, alias="hub.challenge"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token")
 ):
     """Verify WhatsApp webhook with Meta"""
     try:
+        logger.info(f"📞 Webhook verification - Mode: {hub_mode}, Token: {hub_verify_token}")
+        
         if hub_mode == "subscribe":
             if verify_webhook_token(hub_verify_token, VERIFY_TOKEN):
+                logger.info(f"✅ Webhook verified successfully! Challenge: {hub_challenge}")
                 await log_api_call("/webhook", "GET", None, 200)
                 return PlainTextResponse(hub_challenge)
             else:
+                logger.warning(f"❌ Invalid verify token. Expected: {VERIFY_TOKEN}, Got: {hub_verify_token}")
                 await log_api_call("/webhook", "GET", None, 403, "Invalid verify token")
                 return JSONResponse({"error": "Invalid verify token"}, status_code=403)
         
+        logger.warning(f"❌ Invalid mode: {hub_mode}")
         await log_api_call("/webhook", "GET", None, 400, "Invalid mode")
         return JSONResponse({"error": "Invalid mode"}, status_code=400)
     except Exception as e:
