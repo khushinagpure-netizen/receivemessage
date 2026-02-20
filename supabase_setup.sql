@@ -1,7 +1,22 @@
 -- Supabase Database Setup Script
 -- Run this in your Supabase SQL Editor to create all required tables
 
--- ============ TEAM & AGENTS ============
+-- ============ ADMINS & AGENTS ============
+
+-- Create admins table
+CREATE TABLE IF NOT EXISTS admins (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    name VARCHAR(255) NOT NULL,
+    phone VARCHAR(20),
+    password_hash VARCHAR(500),
+    role VARCHAR(50) DEFAULT 'admin', -- 'super_admin', 'admin'
+    status VARCHAR(50) DEFAULT 'active', -- 'active', 'inactive'
+    permissions JSONB DEFAULT '{"all": true}',
+    last_login TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Create agents/team members table
 CREATE TABLE IF NOT EXISTS agents (
@@ -10,12 +25,16 @@ CREATE TABLE IF NOT EXISTS agents (
     name VARCHAR(255) NOT NULL,
     phone VARCHAR(20),
     password_hash VARCHAR(500),
-    role VARCHAR(50) DEFAULT 'agent', -- 'admin', 'supervisor', 'agent'
+    role VARCHAR(50) DEFAULT 'agent', -- 'supervisor', 'senior_agent', 'agent'
     status VARCHAR(50) DEFAULT 'active', -- 'active', 'inactive', 'on_leave'
     assigned_leads_limit INT DEFAULT 50,
     current_leads_count INT DEFAULT 0,
     is_available BOOLEAN DEFAULT true,
     last_activity TIMESTAMP,
+    performance_rating DECIMAL(3,2) DEFAULT 0.00,
+    total_leads_handled INT DEFAULT 0,
+    total_conversations INT DEFAULT 0,
+    created_by UUID REFERENCES admins(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -26,6 +45,7 @@ CREATE TABLE IF NOT EXISTS lead_tags (
     name VARCHAR(100) NOT NULL UNIQUE,
     color VARCHAR(10),
     description TEXT,
+    created_by UUID REFERENCES agents(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -37,14 +57,16 @@ CREATE TABLE IF NOT EXISTS leads (
     email VARCHAR(255),
     country_code VARCHAR(5),
     source VARCHAR(100), -- 'whatsapp', 'sms', 'api', 'import', 'campaign'
-    status VARCHAR(50) DEFAULT 'new', -- 'new', 'contacted', 'follow-up', 'won', 'lost', 'unqualified'
+    status VARCHAR(50) DEFAULT 'new', -- 'new', 'contacted', 'follow-up', 'qualified', 'won', 'lost', 'unqualified'
     priority VARCHAR(20) DEFAULT 'medium', -- 'high', 'medium', 'low'
     assigned_agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
     previous_agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,
     last_contact_at TIMESTAMP,
+    last_message_at TIMESTAMP,
     opt_in BOOLEAN DEFAULT false,
     opt_in_timestamp TIMESTAMP,
     custom_fields JSONB DEFAULT '{}',
+    conversation_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

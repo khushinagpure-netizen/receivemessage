@@ -28,6 +28,8 @@ from config import (
     GEMINI_API_KEY, GEMINI_READY, PORT, HOST, APP_TITLE, APP_DESCRIPTION, APP_VERSION,
     SERVICE_STATUS
 )
+import models
+import utils
 from models import (
     MessageCreate, ReceiveMessage, TemplateCreate, TemplateSend,
     LeadCreate, LeadUpdate, ConversationResponse, RecentMessagesResponse, WebhookMessage,
@@ -98,7 +100,7 @@ async def add_response_headers(request: Request, call_next):
 async def root():
     """API Documentation - Public endpoint (no authentication required)"""
     return {
-        "title": APP_TITLE + " 🚀",
+        "title": APP_TITLE + " ",
         "version": APP_VERSION,
         "status": "operational",
         "description": APP_DESCRIPTION,
@@ -122,7 +124,7 @@ async def root():
 
 @app.get("/status")
 async def api_status():
-    """API Health Check"""
+    """API Health Check with environment variable debugging"""
     return {
         "status": "healthy",
         "version": APP_VERSION,
@@ -131,6 +133,16 @@ async def api_status():
             "whatsapp": bool(ACCESS_TOKEN and PHONE_NUMBER_ID),
             "gemini": SERVICE_STATUS.get("gemini", False),
             "database": bool(SUPABASE_URL and SUPABASE_KEY)
+        },
+        "environment_debug": {
+            "SUPABASE_URL": "SET" if SUPABASE_URL else "MISSING",
+            "SUPABASE_ANON_KEY": "SET" if SUPABASE_KEY else "MISSING", 
+            "SUPABASE_SERVICE_ROLE_KEY": "SET" if SUPABASE_SERVICE_KEY else "MISSING",
+            "ACCESS_TOKEN": "SET" if ACCESS_TOKEN else "MISSING",
+            "PHONE_NUMBER_ID": "SET" if PHONE_NUMBER_ID else "MISSING",
+            "WABA_ID": "SET" if WABA_ID else "MISSING",
+            "VERIFY_TOKEN": "SET" if VERIFY_TOKEN else "MISSING",
+            "GEMINI_API_KEY": "SET" if GEMINI_API_KEY else "MISSING"
         }
     }
 
@@ -187,24 +199,24 @@ async def verify_webhook(
 ):
     """Verify WhatsApp webhook with Meta"""
     try:
-        logger.info(f"📞 Webhook verification - Mode: {hub_mode}, Token: {hub_verify_token}")
+        logger.info(f" Webhook verification - Mode: {hub_mode}, Token: {hub_verify_token}")
         
         if hub_mode == "subscribe":
             if verify_webhook_token(hub_verify_token, VERIFY_TOKEN):
-                logger.info(f"✅ Webhook verified successfully! Challenge: {hub_challenge}")
-                await log_api_call("/webhook", "GET", None, 200)
+                logger.info(f" Webhook verified successfully! Challenge: {hub_challenge}")
+                await utils.log_api_call("/webhook", "GET", None, 200)
                 return PlainTextResponse(hub_challenge)
             else:
-                logger.warning(f"❌ Invalid verify token. Expected: {VERIFY_TOKEN}, Got: {hub_verify_token}")
-                await log_api_call("/webhook", "GET", None, 403, "Invalid verify token")
+                logger.warning(f" Invalid verify token. Expected: {VERIFY_TOKEN}, Got: {hub_verify_token}")
+                await utils.log_api_call("/webhook", "GET", None, 403, "Invalid verify token")
                 return JSONResponse({"error": "Invalid verify token"}, status_code=403)
         
-        logger.warning(f"❌ Invalid mode: {hub_mode}")
-        await log_api_call("/webhook", "GET", None, 400, "Invalid mode")
+        logger.warning(f" Invalid mode: {hub_mode}")
+        await utils.log_api_call("/webhook", "GET", None, 400, "Invalid mode")
         return JSONResponse({"error": "Invalid mode"}, status_code=400)
     except Exception as e:
         logger.error(f"Webhook verification error: {e}")
-        await log_api_call("/webhook", "GET", None, 500, str(e))
+        await utils.log_api_call("/webhook", "GET", None, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/webhook")
@@ -215,7 +227,7 @@ async def receive_webhook(request: Request):
         raw_body = await request.body()
         
         # Log incoming request
-        logger.info(f"🔔 WEBHOOK RECEIVED - {request.client.host if request.client else 'unknown'}")
+        logger.info(f" WEBHOOK RECEIVED - {request.client.host if request.client else 'unknown'}")
         
         # Handle empty body gracefully
         if not raw_body:
@@ -226,7 +238,7 @@ async def receive_webhook(request: Request):
         try:
             body = json.loads(raw_body)
         except json.JSONDecodeError as e:
-            logger.error(f"❌ Invalid JSON in webhook: {e}")
+            logger.error(f" Invalid JSON in webhook: {e}")
             return JSONResponse({"error": "Invalid JSON"}, status_code=400)
         
         # Log webhook structure
@@ -237,7 +249,7 @@ async def receive_webhook(request: Request):
         if x_hub_signature:
             is_valid = verify_webhook_signature(raw_body, x_hub_signature)
             if not is_valid:
-                logger.warning("⚠️  Invalid webhook signature - but continuing anyway")
+                logger.warning("  Invalid webhook signature - but continuing anyway")
             else:
                 logger.debug("✓ Webhook signature verified")
         else:
@@ -281,12 +293,12 @@ async def receive_webhook(request: Request):
         # Log summary
         logger.info(f"✓ Webhook processed - Entries: {entries_count}, Messages: {messages_count}, Status Updates: {status_updates_count}, Template Updates: {template_updates_count}")
         
-        await log_api_call("/webhook", "POST", None, 200)
+        await utils.log_api_call("/webhook", "POST", None, 200)
         return JSONResponse({"status": "received"})
     
     except Exception as e:
         logger.error(f"Webhook error: {e}", exc_info=True)
-        await log_api_call("/webhook", "POST", None, 500, str(e))
+        await utils.log_api_call("/webhook", "POST", None, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 async def process_incoming_message(message: Dict[str, Any]):
@@ -315,7 +327,7 @@ async def process_incoming_message(message: Dict[str, Any]):
         logger.info(f" Incoming message from {phone_clean}: {text[:50]}")
         
         # Create/update lead (for conversation grouping)
-        success, lead = await store_lead(phone_clean, f"Customer {phone_clean}")
+        success, lead = await utils.store_lead(phone_clean, f"Customer {phone_clean}")
         if not success:
             logger.warning(f" Could not store lead for {phone_clean}")
         else:
@@ -333,7 +345,7 @@ async def process_incoming_message(message: Dict[str, Any]):
         )
         
         # Add to in-memory storage
-        add_to_recent_messages(text, phone_clean, phone_clean, "received")
+        utils.add_to_recent_messages(text, phone_clean, phone_clean, "received")
         
         if db_success:
             logger.info(f"✓ Incoming message stored for {phone_clean}")
@@ -344,7 +356,7 @@ async def process_incoming_message(message: Dict[str, Any]):
         default_reply = "Thank you for contacting Katyayani Organics! We will get back to you shortly."
         
         logger.debug(f"Sending auto-reply to {phone_clean}...")
-        success, reply_msg_id = send_whatsapp_message(
+        success, reply_msg_id = utils.send_whatsapp_message(
             PHONE_NUMBER_ID, ACCESS_TOKEN, phone_clean, default_reply
         )
         
@@ -364,7 +376,7 @@ async def process_incoming_message(message: Dict[str, Any]):
                 message_id=reply_msg_id
             )
             
-            add_to_recent_messages(default_reply, "Katyayani Organics", phone_clean, "sent")
+            utils.add_to_recent_messages(default_reply, "Katyayani Organics", phone_clean, "sent")
             
             if reply_success:
                 logger.info(f"✓ Auto-reply sent and stored for {phone_clean} (ID: {reply_msg_id})")
@@ -373,7 +385,7 @@ async def process_incoming_message(message: Dict[str, Any]):
         else:
             logger.warning(f" Failed to send auto-reply to {phone_clean}")
         
-        await log_api_call("/webhook", "POST", phone_clean, 200)
+        await utils.log_api_call("/webhook", "POST", phone_clean, 200)
         
     except Exception as e:
         logger.error(f" Error processing incoming message: {e}", exc_info=True)
@@ -425,7 +437,7 @@ async def process_message_status(status: Dict[str, Any]):
         else:
             logger.warning(f"Could not update status for message {message_id} in database")
         
-        await log_api_call("/webhook/status", "POST", phone_clean, 200, f"Status: {db_status}")
+        await utils.log_api_call("/webhook/status", "POST", phone_clean, 200, f"Status: {db_status}")
         
     except Exception as e:
         logger.error(f"Error processing message status: {e}", exc_info=True)
@@ -470,7 +482,7 @@ async def process_template_status_update(template_status: Dict[str, Any]):
         # Update template status in Supabase
         if SUPABASE_URL and SUPABASE_KEY:
             try:
-                headers = get_supabase_headers()
+                headers = utils.get_supabase_headers()
                 
                 # Update by template_name
                 update_data = {
@@ -496,7 +508,7 @@ async def process_template_status_update(template_status: Dict[str, Any]):
             except Exception as db_error:
                 logger.error(f"Database update error for template {template_name}: {db_error}")
         
-        await log_api_call("/webhook/template-status", "POST", None, 200, f"Template: {template_name} → {db_status}")
+        await utils.log_api_call("/webhook/template-status", "POST", None, 200, f"Template: {template_name} → {db_status}")
     
     except Exception as e:
         logger.error(f"Error processing template status: {e}", exc_info=True)
@@ -536,14 +548,14 @@ async def send_message(request: MessageCreate):
         
         if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
             logger.error("WhatsApp not configured: ACCESS_TOKEN or PHONE_NUMBER_ID is missing")
-            await log_api_call("/send-message", "POST", phone, 503, "WhatsApp not configured")
+            await utils.log_api_call("/send-message", "POST", phone, 503, "WhatsApp not configured")
             return JSONResponse(
                 {"error": "WhatsApp not configured. Please set ACCESS_TOKEN and PHONE_NUMBER_ID in .env"},
                 status_code=503
             )
         
         logger.info(f"Sending message to {phone}")
-        success, msg_id = send_whatsapp_message(
+        success, msg_id = utils.send_whatsapp_message(
             PHONE_NUMBER_ID,
             ACCESS_TOKEN,
             phone,
@@ -556,7 +568,7 @@ async def send_message(request: MessageCreate):
                 msg_id = str(uuid.uuid4())
             
             # Store in both memory and database using unified function
-            add_to_recent_messages(request.message, "Agent", phone, "sent")
+            utils.add_to_recent_messages(request.message, "Agent", phone, "sent")
             
             # Store message and conversation together
             db_success, db_data = await store_conversation_with_message(
@@ -569,7 +581,7 @@ async def send_message(request: MessageCreate):
                 message_id=msg_id
             )
             
-            await log_api_call("/send-message", "POST", phone, 200)
+            await utils.log_api_call("/send-message", "POST", phone, 200)
             
             if db_success:
                 logger.info(f"✓ Message sent to {phone} (ID: {msg_id})")
@@ -588,7 +600,7 @@ async def send_message(request: MessageCreate):
         else:
             error_msg = f"Failed to send WhatsApp message to {phone}. Possible causes: (1) Invalid ACCESS_TOKEN, (2) Invalid PHONE_NUMBER_ID, (3) Recipient not on WhatsApp"
             logger.error(error_msg)
-            await log_api_call("/send-message", "POST", phone, 500, error_msg)
+            await utils.log_api_call("/send-message", "POST", phone, 500, error_msg)
             return JSONResponse(
                 {"error": "Failed to send message", "details": error_msg},
                 status_code=500
@@ -596,7 +608,7 @@ async def send_message(request: MessageCreate):
     
     except Exception as e:
         logger.error(f"Send message error: {e}", exc_info=True)
-        await log_api_call("/send-message", "POST", request.phone, 500, str(e))
+        await utils.log_api_call("/send-message", "POST", request.phone, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/send-media")
@@ -615,7 +627,7 @@ async def send_media(request: MediaMessageCreate) -> MessageResponse:
         
         if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
             logger.error("WhatsApp not configured")
-            await log_api_call("/send-media", "POST", phone, 503, "WhatsApp not configured")
+            await utils.log_api_call("/send-media", "POST", phone, 503, "WhatsApp not configured")
             return JSONResponse(
                 {"error": "WhatsApp not configured"},
                 status_code=503
@@ -636,7 +648,7 @@ async def send_media(request: MediaMessageCreate) -> MessageResponse:
         
         if success:
             media_caption = f"{media_type_str.upper()}: {request.caption or request.media_url}"
-            add_to_recent_messages(media_caption, "Agent", phone, "sent")
+            utils.add_to_recent_messages(media_caption, "Agent", phone, "sent")
             
             # If no message_id from API, generate UUID
             if not msg_id:
@@ -656,7 +668,7 @@ async def send_media(request: MediaMessageCreate) -> MessageResponse:
                 caption=request.caption
             )
             
-            await log_api_call("/send-media", "POST", phone, 200)
+            await utils.log_api_call("/send-media", "POST", phone, 200)
             
             if db_success:
                 logger.info(f"✓ Media sent to {phone} (Type: {media_type_str}, ID: {msg_id})")
@@ -675,14 +687,14 @@ async def send_media(request: MediaMessageCreate) -> MessageResponse:
         else:
             error_msg = f"Failed to send {media_type_str} to {phone}. Possible causes: (1) Invalid ACCESS_TOKEN, (2) Media URL not accessible, (3) Recipient not on WhatsApp"
             logger.error(error_msg)
-            await log_api_call("/send-media", "POST", phone, 500, error_msg)
+            await utils.log_api_call("/send-media", "POST", phone, 500, error_msg)
             return JSONResponse(
                 {"error": "Failed to send media", "details": error_msg},
                 status_code=500
             )
     except Exception as e:
         logger.error(f"Send media error: {e}", exc_info=True)
-        await log_api_call("/send-media", "POST", request.phone, 500, str(e))
+        await utils.log_api_call("/send-media", "POST", request.phone, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/send-template")
@@ -700,7 +712,7 @@ async def send_template(request: TemplateSend) -> MessageResponse:
         
         if not ACCESS_TOKEN or not PHONE_NUMBER_ID:
             logger.error("WhatsApp not configured")
-            await log_api_call("/send-template", "POST", phone, 503, "WhatsApp not configured")
+            await utils.log_api_call("/send-template", "POST", phone, 503, "WhatsApp not configured")
             return JSONResponse(
                 {"error": "WhatsApp not configured"},
                 status_code=503
@@ -727,7 +739,7 @@ async def send_template(request: TemplateSend) -> MessageResponse:
                 logger.debug(f"Generated UUID for template message: {msg_id}")
             
             template_info = f"TEMPLATE: {request.template_id} with vars: {request.variables or {}}"
-            add_to_recent_messages(template_info, "Agent", phone, "sent")
+            utils.add_to_recent_messages(template_info, "Agent", phone, "sent")
             
             # Store message and conversation together
             db_success, db_data = await store_conversation_with_message(
@@ -740,7 +752,7 @@ async def send_template(request: TemplateSend) -> MessageResponse:
                 message_id=msg_id
             )
             
-            await log_api_call("/send-template", "POST", phone, 200)
+            await utils.log_api_call("/send-template", "POST", phone, 200)
             
             if db_success:
                 logger.info(f"✓ Template sent to {phone} (Template: {request.template_id}, ID: {msg_id})")
@@ -761,14 +773,14 @@ async def send_template(request: TemplateSend) -> MessageResponse:
         else:
             error_msg = f"Failed to send template '{request.template_id}' to {phone}. Possible causes: (1) Template not found, (2) Invalid variables, (3) Invalid phone number, (4) WhatsApp API error"
             logger.error(error_msg)
-            await log_api_call("/send-template", "POST", phone, 500, error_msg)
+            await utils.log_api_call("/send-template", "POST", phone, 500, error_msg)
             return JSONResponse(
                 {"error": "Failed to send template", "details": error_msg},
                 status_code=500
             )
     except Exception as e:
         logger.error(f"Send template error: {e}", exc_info=True)
-        await log_api_call("/send-template", "POST", request.phone, 500, str(e))
+        await utils.log_api_call("/send-template", "POST", request.phone, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.post("/message-status")
@@ -785,7 +797,7 @@ async def update_message_status_endpoint(request: MessageStatusUpdate) -> Messag
         )
         
         if success:
-            await log_api_call("/message-status", "POST", None, 200)
+            await utils.log_api_call("/message-status", "POST", None, 200)
             logger.info(f"✓ Message {request.message_id} status updated to '{request.status}'")
             return JSONResponse({
                 "status": "success",
@@ -796,14 +808,14 @@ async def update_message_status_endpoint(request: MessageStatusUpdate) -> Messag
         else:
             error_msg = f"Message {request.message_id} not found. Ensure database migration was run."
             logger.error(error_msg)
-            await log_api_call("/message-status", "POST", None, 404, error_msg)
+            await utils.log_api_call("/message-status", "POST", None, 404, error_msg)
             return JSONResponse(
                 {"error": "Message not found", "details": error_msg},
                 status_code=404
             )
     except Exception as e:
         logger.error(f"Update status error: {e}", exc_info=True)
-        await log_api_call("/message-status", "POST", None, 500, str(e))
+        await utils.log_api_call("/message-status", "POST", None, 500, str(e))
         return JSONResponse({"error": f"Status update failed: {str(e)}", "error_type": type(e).__name__}, status_code=500)
 
 @app.get("/message-status")
@@ -815,13 +827,13 @@ async def get_message_status(message_id: str):
     """
     try:
         if not SUPABASE_URL or not SUPABASE_KEY:
-            await log_api_call("/message-status", "GET", message_id, 503, "Database not configured")
+            await utils.log_api_call("/message-status", "GET", message_id, 503, "Database not configured")
             return JSONResponse(
                 {"error": "Database not configured"},
                 status_code=503
             )
         
-        headers = get_supabase_headers()
+        headers = utils.get_supabase_headers()
         
         # Query messages table by message_id
         url = f"{SUPABASE_URL}/rest/v1/messages?message_id=eq.{message_id}&select=id,message_id,phone,message,direction,status,created_at,updated_at"
@@ -834,7 +846,7 @@ async def get_message_status(message_id: str):
             
             if not messages or not isinstance(messages, list) or len(messages) == 0:
                 logger.warning(f"Message not found: {message_id}")
-                await log_api_call("/message-status", "GET", message_id, 404, "Message not found")
+                await utils.log_api_call("/message-status", "GET", message_id, 404, "Message not found")
                 return JSONResponse({
                     "status": "error",
                     "message_id": message_id,
@@ -846,7 +858,7 @@ async def get_message_status(message_id: str):
             current_status = msg.get("status", "unknown")
             
             logger.info(f"✓ Retrieved status for {message_id}: {current_status}")
-            await log_api_call("/message-status", "GET", message_id, 200)
+            await utils.log_api_call("/message-status", "GET", message_id, 200)
             
             return JSONResponse({
                 "status": "success",
@@ -870,7 +882,7 @@ async def get_message_status(message_id: str):
         
         else:
             logger.error(f"Failed to get message status: {response.status_code}")
-            await log_api_call("/message-status", "GET", message_id, response.status_code, response.text[:100])
+            await utils.log_api_call("/message-status", "GET", message_id, response.status_code, response.text[:100])
             return JSONResponse({
                 "status": "error",
                 "error": f"Failed to retrieve message status (HTTP {response.status_code})",
@@ -887,7 +899,7 @@ async def get_message_status(message_id: str):
     
     except Exception as e:
         logger.error(f"Get status error: {e}", exc_info=True)
-        await log_api_call("/message-status", "GET", message_id, 500, str(e)[:100])
+        await utils.log_api_call("/message-status", "GET", message_id, 500, str(e)[:100])
         return JSONResponse({
             "status": "error",
             "error": f"Failed to get status: {str(e)[:100]}",
@@ -898,31 +910,31 @@ async def get_message_status(message_id: str):
 async def get_sentiment(phone: str):
     """Get sentiment analysis for a phone number"""
     try:
-        sentiment_data = await get_conversation_sentiment(phone)
+        sentiment_data = await utils.get_conversation_sentiment(phone)
         
         if sentiment_data:
-            await log_api_call("/sentiment", "GET", phone, 200)
+            await utils.log_api_call("/sentiment", "GET", phone, 200)
             return JSONResponse({
                 "status": "success",
                 "analysis": sentiment_data,
                 "timestamp": datetime.now().isoformat()
             })
         else:
-            await log_api_call("/sentiment", "GET", phone, 404, "No messages found")
+            await utils.log_api_call("/sentiment", "GET", phone, 404, "No messages found")
             return JSONResponse(
                 {"error": "No messages found for sentiment analysis"},
                 status_code=404
             )
     except Exception as e:
         logger.error(f"Sentiment analysis error: {e}", exc_info=True)
-        await log_api_call("/sentiment", "GET", phone, 500, str(e))
+        await utils.log_api_call("/sentiment", "GET", phone, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/analytics")
 async def get_analytics(phone: Optional[str] = None):
     """Get message analytics"""
     try:
-        stats = await get_message_stats(phone)
+        stats = await utils.get_message_stats(phone)
         
         # Always return stats, even if empty (shows 0 values with no data)
         analytics = stats if stats else {
@@ -934,7 +946,7 @@ async def get_analytics(phone: Optional[str] = None):
             "failed_count": 0
         }
         
-        await log_api_call("/analytics", "GET", phone, 200)
+        await utils.log_api_call("/analytics", "GET", phone, 200)
         return JSONResponse({
             "status": "success",
             "phone": phone or "all",
@@ -945,7 +957,7 @@ async def get_analytics(phone: Optional[str] = None):
         })
     except Exception as e:
         logger.error(f"Analytics error: {e}", exc_info=True)
-        await log_api_call("/analytics", "GET", phone, 500, str(e))
+        await utils.log_api_call("/analytics", "GET", phone, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # ============ CONVERSATION ENDPOINTS ============
@@ -955,7 +967,7 @@ async def get_conversation_endpoint(phone: str):
     """Get conversation history for a specific phone number"""
     try:
         if not SUPABASE_URL or not SUPABASE_KEY:
-            await log_api_call("/get-conversation", "GET", phone, 503, "Database not configured")
+            await utils.log_api_call("/get-conversation", "GET", phone, 503, "Database not configured")
             return JSONResponse(
                 {"status": "error", "messages": [], "error": "Database not configured"},
                 status_code=503
@@ -968,7 +980,7 @@ async def get_conversation_endpoint(phone: str):
         
         logger.debug(f"Fetching conversation for {phone_clean}")
         
-        headers = get_supabase_headers()
+        headers = utils.get_supabase_headers()
         
         response = requests.get(
             f"{SUPABASE_URL}/rest/v1/conversations?phone=eq.{phone_clean}&order=created_at.asc",
@@ -979,7 +991,7 @@ async def get_conversation_endpoint(phone: str):
         if response.status_code == 200:
             messages = response.json()
             logger.info(f"✓ Retrieved {len(messages)} messages for {phone_clean}")
-            await log_api_call("/get-conversation", "GET", phone_clean, 200)
+            await utils.log_api_call("/get-conversation", "GET", phone_clean, 200)
             
             return JSONResponse({
                 "status": "success",
@@ -993,7 +1005,7 @@ async def get_conversation_endpoint(phone: str):
             })
         else:
             logger.error(f"Failed to get conversations: {response.status_code} - {response.text}")
-            await log_api_call("/get-conversation", "GET", phone_clean, response.status_code, response.text)
+            await utils.log_api_call("/get-conversation", "GET", phone_clean, response.status_code, response.text)
             return JSONResponse(
                 {"status": "error", "messages": [], "total": 0, "phone": phone_clean, "error": response.text},
                 status_code=response.status_code
@@ -1001,7 +1013,7 @@ async def get_conversation_endpoint(phone: str):
     
     except Exception as e:
         logger.error(f"Get conversation error: {e}", exc_info=True)
-        await log_api_call("/get-conversation", "GET", phone, 500, str(e))
+        await utils.log_api_call("/get-conversation", "GET", phone, 500, str(e))
         return JSONResponse(
             {"status": "error", "messages": [], "error": str(e)},
             status_code=500
@@ -1030,7 +1042,7 @@ async def recent_messages(
             sent = [m for m in messages if m.get("direction") == "sent"]
             received = [m for m in messages if m.get("direction") == "received"]
             
-            await log_api_call("/recent-messages", "GET", phone, 200)
+            await utils.log_api_call("/recent-messages", "GET", phone, 200)
             
             return JSONResponse({
                 "status": "success",
@@ -1078,7 +1090,7 @@ async def recent_messages(
                 status = msg.get("status", "unknown")
                 status_breakdown[status] = status_breakdown.get(status, 0) + 1
             
-            await log_api_call("/recent-messages", "GET", phone_clean, 200)
+            await utils.log_api_call("/recent-messages", "GET", phone_clean, 200)
             
             return JSONResponse({
                 "status": "success",
@@ -1094,7 +1106,7 @@ async def recent_messages(
             })
         elif response.status_code == 401:
             logger.error("Supabase authentication failed - Invalid API key")
-            await log_api_call("/recent-messages", "GET", phone_clean, 401, "Invalid Supabase key")
+            await utils.log_api_call("/recent-messages", "GET", phone_clean, 401, "Invalid Supabase key")
             return JSONResponse({
                 "status": "error",
                 "messages": [],
@@ -1104,7 +1116,7 @@ async def recent_messages(
             }, status_code=401)
         elif response.status_code == 404:
             logger.info(f"No messages found for {phone_clean}")
-            await log_api_call("/recent-messages", "GET", phone_clean, 200)
+            await utils.log_api_call("/recent-messages", "GET", phone_clean, 200)
             return JSONResponse({
                 "status": "success",
                 "phone": phone_clean,
@@ -1118,7 +1130,7 @@ async def recent_messages(
             })
         else:
             logger.error(f"Supabase query failed: {response.status_code} - {response.text[:200]}")
-            await log_api_call("/recent-messages", "GET", phone_clean, response.status_code, response.text[:100])
+            await utils.log_api_call("/recent-messages", "GET", phone_clean, response.status_code, response.text[:100])
             
             return JSONResponse({
                 "status": "error",
@@ -1130,7 +1142,7 @@ async def recent_messages(
     
     except requests.exceptions.Timeout:
         logger.error(f"Recent messages query timed out")
-        await log_api_call("/recent-messages", "GET", phone, 504, "Query timeout")
+        await utils.log_api_call("/recent-messages", "GET", phone, 504, "Query timeout")
         return JSONResponse({
             "status": "error",
             "messages": [],
@@ -1140,7 +1152,7 @@ async def recent_messages(
     
     except Exception as e:
         logger.error(f"Recent messages error: {e}", exc_info=True)
-        await log_api_call("/recent-messages", "GET", phone, 500, str(e)[:100])
+        await utils.log_api_call("/recent-messages", "GET", phone, 500, str(e)[:100])
         return JSONResponse({
             "status": "error",
             "messages": [],
@@ -1203,7 +1215,7 @@ async def received_messages(
                     "lead_id": msg.get("lead_id")
                 })
             
-            await log_api_call("/received-messages", "GET", phone, 200)
+            await utils.log_api_call("/received-messages", "GET", phone, 200)
             
             return JSONResponse({
                 "status": "success",
@@ -1225,7 +1237,7 @@ async def received_messages(
     
     except Exception as e:
         logger.error(f"Received messages error: {e}", exc_info=True)
-        await log_api_call("/received-messages", "GET", phone, 500, str(e))
+        await utils.log_api_call("/received-messages", "GET", phone, 500, str(e))
         return JSONResponse({
             "status": "error",
             "error": str(e),
@@ -1244,7 +1256,7 @@ async def template_create(request: TemplateCreate):
     try:
         if not WABA_ID or not ACCESS_TOKEN:
             logger.error("WhatsApp not fully configured")
-            await log_api_call("/template/create", "POST", None, 503, "WhatsApp not configured")
+            await utils.log_api_call("/template/create", "POST", None, 503, "WhatsApp not configured")
             return JSONResponse(
                 {"error": "WhatsApp not configured", "required": ["WABA_ID", "ACCESS_TOKEN"]},
                 status_code=503
@@ -1348,7 +1360,7 @@ Return ONLY the final template message text, nothing else."""
         valid_categories = ["UTILITY", "MARKETING", "AUTHENTICATION"]
         if category_str not in valid_categories:
             logger.error(f"Invalid category: {category_str}. Valid: {valid_categories}")
-            await log_api_call("/template/create", "POST", None, 400, f"Invalid category: {category_str}")
+            await utils.log_api_call("/template/create", "POST", None, 400, f"Invalid category: {category_str}")
             return JSONResponse({
                 "status": "error",
                 "error": f"Invalid category. Must be: UTILITY, MARKETING, or AUTHENTICATION. Got: {category_str}"
@@ -1397,7 +1409,7 @@ Return ONLY the final template message text, nothing else."""
                 except Exception as e:
                     logger.warning(f"Could not store in Supabase: {e}")
             
-            await log_api_call("/template/create", "POST", None, 201)
+            await utils.log_api_call("/template/create", "POST", None, 201)
             
             return JSONResponse({
                 "status": "success",
@@ -1422,7 +1434,7 @@ Return ONLY the final template message text, nothing else."""
             
             if error_subcode == 2388024:
                 # Template name already exists
-                await log_api_call("/template/create", "POST", None, 409, error_details)
+                await utils.log_api_call("/template/create", "POST", None, 409, error_details)
                 return JSONResponse({
                     "status": "error",
                     "error": "Template name already exists",
@@ -1438,7 +1450,7 @@ Return ONLY the final template message text, nothing else."""
                 }, status_code=409)  # 409 Conflict
             else:
                 # Other errors
-                await log_api_call("/template/create", "POST", None, 500, error_details)
+                await utils.log_api_call("/template/create", "POST", None, 500, error_details)
                 return JSONResponse({
                     "status": "error",
                     "error": "Failed to create template on WhatsApp",
@@ -1453,7 +1465,7 @@ Return ONLY the final template message text, nothing else."""
     
     except Exception as e:
         logger.error(f"Template create error: {e}", exc_info=True)
-        await log_api_call("/template/create", "POST", None, 500, str(e))
+        await utils.log_api_call("/template/create", "POST", None, 500, str(e))
         return JSONResponse({
             "status": "error",
             "error": str(e)
@@ -1474,7 +1486,7 @@ async def create_template_on_meta(request: TemplateCreate):
     try:
         if not WABA_ID or not ACCESS_TOKEN:
             logger.error("WhatsApp not fully configured")
-            await log_api_call("/create-template", "POST", None, 503, "WhatsApp not configured")
+            await utils.log_api_call("/create-template", "POST", None, 503, "WhatsApp not configured")
             return JSONResponse(
                 {"error": "WhatsApp not configured", "required": ["WABA_ID", "ACCESS_TOKEN"]},
                 status_code=503
@@ -1570,7 +1582,7 @@ Return ONLY the final template message text, nothing else."""
         valid_categories = ["UTILITY", "MARKETING", "AUTHENTICATION"]
         if category_str not in valid_categories:
             logger.error(f"Invalid category: {category_str}. Valid: {valid_categories}")
-            await log_api_call("/create-template", "POST", None, 400, f"Invalid category: {category_str}")
+            await utils.log_api_call("/create-template", "POST", None, 400, f"Invalid category: {category_str}")
             return JSONResponse({
                 "status": "error",
                 "error": f"Invalid category. Must be: UTILITY, MARKETING, or AUTHENTICATION. Got: {category_str}"
@@ -1619,7 +1631,7 @@ Return ONLY the final template message text, nothing else."""
                 except Exception as e:
                     logger.warning(f"Could not store in Supabase: {e}")
             
-            await log_api_call("/create-template", "POST", None, 201)
+            await utils.log_api_call("/create-template", "POST", None, 201)
             
             return JSONResponse({
                 "status": "success",
@@ -1644,7 +1656,7 @@ Return ONLY the final template message text, nothing else."""
             
             if error_subcode == 2388024:
                 # Template name already exists
-                await log_api_call("/create-template", "POST", None, 409, error_details)
+                await utils.log_api_call("/create-template", "POST", None, 409, error_details)
                 return JSONResponse({
                     "status": "error",
                     "error": "Template name already exists",
@@ -1660,7 +1672,7 @@ Return ONLY the final template message text, nothing else."""
                 }, status_code=409)  # 409 Conflict
             else:
                 # Other errors
-                await log_api_call("/create-template", "POST", None, 500, error_details)
+                await utils.log_api_call("/create-template", "POST", None, 500, error_details)
                 return JSONResponse({
                     "status": "error",
                     "error": "Failed to create template on WhatsApp",
@@ -1675,7 +1687,7 @@ Return ONLY the final template message text, nothing else."""
     
     except Exception as e:
         logger.error(f"Create template error: {e}", exc_info=True)
-        await log_api_call("/create-template", "POST", None, 500, str(e))
+        await utils.log_api_call("/create-template", "POST", None, 500, str(e))
         return JSONResponse({
             "status": "error",
             "error": str(e)
@@ -1688,32 +1700,32 @@ async def templates_list():
         if not SUPABASE_URL or not SUPABASE_KEY:
             return JSONResponse({"templates": [], "count": 0})
         
-        headers = get_supabase_headers()
+        headers = utils.get_supabase_headers()
         
-        # Filter by APPROVED status (not is_active, since that column doesn't exist)
+        # Filter by active status using message_templates table
         response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/templates?status=eq.APPROVED&select=*",
+            f"{SUPABASE_URL}/rest/v1/message_templates?is_active=eq.true&select=*&order=created_at.desc",
             headers=headers,
             timeout=10
         )
         
         if response.status_code == 200:
             templates = response.json()
-            await log_api_call("/templates", "GET", None, 200)
+            await utils.log_api_call("/templates", "GET", None, 200)
             
             return JSONResponse({
                 "status": "success",
                 "templates": templates,
                 "count": len(templates),
-                "message": "These are WhatsApp-approved templates enhanced with Gemini"
+                "message": "Active message templates from database"
             })
         else:
-            logger.warning(f"Could not fetch templates: {response.status_code}")
-            return JSONResponse({"templates": [], "count": 0, "status": "no_approved_templates"})
+            logger.warning(f"Could not fetch templates: {response.status_code} - {response.text}")
+            return JSONResponse({"templates": [], "count": 0, "status": "database_error"})
     
     except Exception as e:
         logger.error(f"Templates list error: {e}")
-        return JSONResponse({"templates": [], "count": 0})
+        return JSONResponse({"templates": [], "count": 0, "error": str(e)})
 
 @app.get("/templates/status")
 async def templates_status():
@@ -1771,7 +1783,7 @@ async def templates_status():
                 "created_at": template.get("created_at")
             })
         
-        await log_api_call("/templates/status", "GET", None, 200)
+        await utils.log_api_call("/templates/status", "GET", None, 200)
         
         return JSONResponse({
             "status": "success",
@@ -1787,7 +1799,7 @@ async def templates_status():
     
     except Exception as e:
         logger.error(f"Templates status error: {e}", exc_info=True)
-        await log_api_call("/templates/status", "GET", None, 500, str(e))
+        await utils.log_api_call("/templates/status", "GET", None, 500, str(e))
         return JSONResponse({
             "status": "error",
             "error": str(e)
@@ -1800,27 +1812,27 @@ async def template_send(request: TemplateSend):
         if not SUPABASE_URL or not SUPABASE_KEY:
             return JSONResponse({"error": "Database not configured"}, status_code=503)
         
-        headers = get_supabase_headers()
+        headers = utils.get_supabase_headers()
         
-        # Get template
+        # Get template from message_templates table
         response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/templates?id=eq.{request.template_id}",
+            f"{SUPABASE_URL}/rest/v1/message_templates?id=eq.{request.template_id}",
             headers=headers,
             timeout=10
         )
         
         if response.status_code != 200 or not response.json():
-            return JSONResponse({"error": "Template not found"}, status_code=404)
+            return JSONResponse({"error": "Template not found in database"}, status_code=404)
         
         template = response.json()[0]
         
-        # Replace variables
-        message = template["body"]
+        # Replace variables in template content
+        message = template["content"]
         for key, value in request.variables.items():
-            message = message.replace(f"{{{key}}}", str(value))
+            message = message.replace(f"{{{{{key}}}}}", str(value))
         
         # Send message
-        success, msg_id = send_whatsapp_message(
+        success, msg_id = utils.send_whatsapp_message(
             PHONE_NUMBER_ID,
             ACCESS_TOKEN,
             request.phone,
@@ -1834,10 +1846,10 @@ async def template_send(request: TemplateSend):
                 logger.debug(f"Generated UUID for template message: {msg_id}")
             
             # Store in memory
-            add_to_recent_messages(message, "Template", request.phone, "sent")
+            utils.add_to_recent_messages(message, "Template", request.phone, "sent")
             
             # Store message and conversation together
-            db_success, db_data = await store_conversation_with_message(
+            db_success, db_data = await utils.store_conversation_with_message(
                 phone=request.phone,
                 message=message,
                 sender="Template",
@@ -1847,7 +1859,7 @@ async def template_send(request: TemplateSend):
                 message_id=msg_id
             )
             
-            await log_api_call("/template/send", "POST", request.phone, 200)
+            await utils.log_api_call("/template/send", "POST", request.phone, 200)
             
             if db_success:
                 logger.info(f"✓ Template sent to {request.phone} (Template ID: {request.template_id}, Message ID: {msg_id})")
@@ -1867,7 +1879,7 @@ async def template_send(request: TemplateSend):
     
     except Exception as e:
         logger.error(f"Template send error: {e}")
-        await log_api_call("/template/send", "POST", request.phone, 500, str(e))
+        await utils.log_api_call("/template/send", "POST", request.phone, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # ============ LEAD ENDPOINTS ============
@@ -1876,10 +1888,10 @@ async def template_send(request: TemplateSend):
 async def create_lead(request: LeadCreate):
     """Create a new lead"""
     try:
-        success, lead = await store_lead(request.phone, request.name)
+        success, lead = await utils.store_lead(request.phone, request.name)
         
         if success:
-            await log_api_call("/leads/create", "POST", request.phone, 201)
+            await utils.log_api_call("/leads/create", "POST", request.phone, 201)
             
             return JSONResponse({
                 "status": "success",
@@ -1890,7 +1902,7 @@ async def create_lead(request: LeadCreate):
     
     except Exception as e:
         logger.error(f"Create lead error: {e}")
-        await log_api_call("/leads/create", "POST", request.phone, 500, str(e))
+        await utils.log_api_call("/leads/create", "POST", request.phone, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/leads")
@@ -1910,7 +1922,7 @@ async def list_leads(limit: int = Query(100, ge=1, le=1000)):
         
         if response.status_code == 200:
             leads = response.json()
-            await log_api_call("/leads", "GET", None, 200)
+            await utils.log_api_call("/leads", "GET", None, 200)
             
             return JSONResponse({
                 "status": "success",
@@ -1926,16 +1938,16 @@ async def list_leads(limit: int = Query(100, ge=1, le=1000)):
 
 @app.post("/leads/status")
 async def update_lead_status(
-    phone: str = Query(...),
-    status: str = Query(...)
+    phone: str = Query(..., description="Phone number of the lead"),
+    status: str = Query("new", description="New status (optional, defaults to 'new')")
 ):
-    """Update lead status"""
+    """Update lead status - status parameter is optional"""
     try:
         if not SUPABASE_URL or not SUPABASE_KEY:
-            await log_api_call("/leads/status", "POST", phone, 503, "Database not configured")
+            await utils.log_api_call("/leads/status", "POST", phone, 503, "Database not configured")
             return JSONResponse({"error": "Database not configured"}, status_code=503)
         
-        headers = get_supabase_headers()
+        headers = utils.get_supabase_headers()
         
         logger.debug(f"Updating lead status for {phone} to {status}")
         
@@ -1949,21 +1961,210 @@ async def update_lead_status(
         logger.debug(f"Update response: {response.status_code} - {response.text}")
         
         if response.status_code == 200:
-            await log_api_call("/leads/status", "POST", phone, 200)
+            await utils.log_api_call("/leads/status", "POST", phone, 200)
             
             return JSONResponse({
                 "status": "success",
                 "message": f"Lead status updated to {status}",
-                "phone": phone
+                "phone": phone,
+                "new_status": status
             })
         else:
             logger.error(f"Supabase error: {response.status_code} - {response.text}")
-            await log_api_call("/leads/status", "POST", phone, response.status_code, response.text)
+            await utils.log_api_call("/leads/status", "POST", phone, response.status_code, response.text)
             return JSONResponse({"error": f"Failed to update status: {response.text}"}, status_code=500)
     
     except Exception as e:
         logger.error(f"Update status error: {e}", exc_info=True)
-        await log_api_call("/leads/status", "POST", phone, 500, str(e))
+        await utils.log_api_call("/leads/status", "POST", phone, 500, str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# ============ ADMIN MANAGEMENT ENDPOINTS ============
+
+@app.post("/admin/create")
+async def create_admin(request: models.AdminCreate):
+    """Create a new admin"""
+    try:
+        success, admin = await utils.create_admin(request.model_dump())
+        
+        if success and admin:
+            await utils.log_api_call("/admin/create", "POST", None, 201)
+            return JSONResponse({
+                "status": "success",
+                "message": "Admin created successfully",
+                "admin": admin
+            }, status_code=201)
+        else:
+            await utils.log_api_call("/admin/create", "POST", None, 500)
+            return JSONResponse({
+                "status": "error",
+                "message": "Failed to create admin"
+            }, status_code=500)
+    
+    except Exception as e:
+        logger.error(f"Create admin error: {e}")
+        await utils.log_api_call("/admin/create", "POST", None, 500, str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/admin/list")
+async def list_admins():
+    """Get all admins"""
+    try:
+        success, admins = await utils.get_all_admins()
+        
+        if success:
+            await utils.log_api_call("/admin/list", "GET", None, 200)
+            return JSONResponse({
+                "status": "success",
+                "admins": admins,
+                "count": len(admins)
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "admins": [],
+                "count": 0
+            })
+    
+    except Exception as e:
+        logger.error(f"List admins error: {e}")
+        await utils.log_api_call("/admin/list", "GET", None, 500, str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+# ============ AGENT MANAGEMENT ENDPOINTS ============
+
+@app.post("/agent/create")
+async def create_agent(request: models.AgentCreate):
+    """Create a new agent"""
+    try:
+        success, agent = await utils.create_agent(request.model_dump())
+        
+        if success and agent:
+            await utils.log_api_call("/agent/create", "POST", None, 201)
+            return JSONResponse({
+                "status": "success",
+                "message": "Agent created successfully",
+                "agent": agent
+            }, status_code=201)
+        else:
+            await utils.log_api_call("/agent/create", "POST", None, 500)
+            return JSONResponse({
+                "status": "error",
+                "message": "Failed to create agent"
+            }, status_code=500)
+    
+    except Exception as e:
+        logger.error(f"Create agent error: {e}")
+        await utils.log_api_call("/agent/create", "POST", None, 500, str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/agent/list")
+async def list_agents():
+    """Get all agents"""
+    try:
+        success, agents = await utils.get_all_agents()
+        
+        if success:
+            await utils.log_api_call("/agent/list", "GET", None, 200)
+            return JSONResponse({
+                "status": "success",
+                "agents": agents,
+                "count": len(agents)
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "agents": [],
+                "count": 0
+            })
+    
+    except Exception as e:
+        logger.error(f"List agents error: {e}")
+        await utils.log_api_call("/agent/list", "GET", None, 500, str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.post("/agent/send-message")
+async def agent_send_message(request: models.AgentMessageSend):
+    """Send message from specific agent to lead"""
+    try:
+        success, msg_id = await utils.send_message_from_agent(
+            request.agent_id,
+            request.lead_phone,
+            request.message
+        )
+        
+        if success:
+            await utils.log_api_call("/agent/send-message", "POST", request.lead_phone, 200)
+            return JSONResponse({
+                "status": "success",
+                "message": "Message sent successfully",
+                "message_id": msg_id,
+                "agent_id": request.agent_id,
+                "lead_phone": request.lead_phone
+            })
+        else:
+            await utils.log_api_call("/agent/send-message", "POST", request.lead_phone, 500)
+            return JSONResponse({
+                "status": "error",
+                "message": "Failed to send message"
+            }, status_code=500)
+    
+    except Exception as e:
+        logger.error(f"Agent send message error: {e}")
+        await utils.log_api_call("/agent/send-message", "POST", request.lead_phone, 500, str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/agent/{agent_id}/conversations")
+async def get_agent_conversations(agent_id: str, limit: int = Query(50, ge=1, le=100)):
+    """Get agent conversation history and performance stats"""
+    try:
+        success, data = await utils.get_agent_conversations(agent_id, limit)
+        
+        if success:
+            await utils.log_api_call(f"/agent/{agent_id}/conversations", "GET", None, 200)
+            return JSONResponse({
+                "status": "success",
+                "data": data
+            })
+        else:
+            await utils.log_api_call(f"/agent/{agent_id}/conversations", "GET", None, 404)
+            return JSONResponse({
+                "status": "error",
+                "message": "Agent not found or no conversations"
+            }, status_code=404)
+    
+    except Exception as e:
+        logger.error(f"Get agent conversations error: {e}")
+        await utils.log_api_call(f"/agent/{agent_id}/conversations", "GET", None, 500, str(e))
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+@app.get("/agent/{agent_id}/recent-conversations")
+async def get_agent_recent_conversations(agent_id: str, limit: int = Query(10, ge=1, le=50)):
+    """Get agent recent conversations (simplified)"""
+    try:
+        success, data = await utils.get_agent_conversations(agent_id, limit)
+        
+        if success and data:
+            recent_conversations = data.get("recent_conversations", [])
+            await utils.log_api_call(f"/agent/{agent_id}/recent-conversations", "GET", None, 200)
+            
+            return JSONResponse({
+                "status": "success",
+                "agent_id": agent_id,
+                "agent_name": data.get("agent_name"),
+                "recent_conversations": recent_conversations,
+                "total_count": len(recent_conversations)
+            })
+        else:
+            await utils.log_api_call(f"/agent/{agent_id}/recent-conversations", "GET", None, 404)
+            return JSONResponse({
+                "status": "error",
+                "message": "Agent not found or no conversations"
+            }, status_code=404)
+    
+    except Exception as e:
+        logger.error(f"Get agent recent conversations error: {e}")
+        await utils.log_api_call(f"/agent/{agent_id}/recent-conversations", "GET", None, 500, str(e))
         return JSONResponse({"error": str(e)}, status_code=500)
 
 # ============ STARTUP EVENT ============
@@ -2015,3 +2216,4 @@ if __name__ == "__main__":
         port=PORT,
         log_level="info"
     )
+

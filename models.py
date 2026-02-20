@@ -9,6 +9,37 @@ from datetime import datetime
 
 # ============ ENUMS ============
 
+class UserRoleEnum(str, Enum):
+    """User role types"""
+    SUPER_ADMIN = "super_admin"
+    ADMIN = "admin"
+    SUPERVISOR = "supervisor"
+    SENIOR_AGENT = "senior_agent"
+    AGENT = "agent"
+
+class UserStatusEnum(str, Enum):
+    """User status"""
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    ON_LEAVE = "on_leave"
+    SUSPENDED = "suspended"
+
+class LeadStatusEnum(str, Enum):
+    """Lead status"""
+    NEW = "new"
+    CONTACTED = "contacted"
+    FOLLOW_UP = "follow-up"
+    QUALIFIED = "qualified"
+    WON = "won"
+    LOST = "lost"
+    UNQUALIFIED = "unqualified"
+
+class LeadPriorityEnum(str, Enum):
+    """Lead priority"""
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
 class MessageTypeEnum(str, Enum):
     """Message types"""
     TEXT = "text"
@@ -44,6 +75,73 @@ class TemplateModeEnum(str, Enum):
     """Template creation modes"""
     MANUAL = "manual"  # User provides exact template text
     AI = "ai"  # AI generates template from prompt
+
+# ============ ADMIN & AGENT MODELS ============
+
+class AdminCreate(BaseModel):
+    """Create new admin"""
+    email: str = Field(..., description="Admin email address", example="admin@katyayaniorganics.com")
+    name: str = Field(..., description="Admin full name", example="John Doe")
+    phone: Optional[str] = Field(None, description="Admin phone number", example="+919876543210")
+    password: str = Field(..., min_length=8, description="Admin password (min 8 chars)")
+    role: UserRoleEnum = Field(UserRoleEnum.ADMIN, description="Admin role")
+    permissions: Optional[Dict[str, Any]] = Field({"all": True}, description="Admin permissions")
+
+class AgentCreate(BaseModel):
+    """Create new agent"""
+    email: str = Field(..., description="Agent email address", example="agent@katyayaniorganics.com")
+    name: str = Field(..., description="Agent full name", example="Jane Smith")
+    phone: Optional[str] = Field(None, description="Agent phone number", example="+919876543210")
+    password: str = Field(..., min_length=8, description="Agent password (min 8 chars)")
+    role: UserRoleEnum = Field(UserRoleEnum.AGENT, description="Agent role")
+    assigned_leads_limit: int = Field(50, description="Maximum leads agent can handle", example=50)
+
+class AdminResponse(BaseModel):
+    """Admin response model"""
+    id: str = Field(..., description="Admin ID")
+    email: str = Field(..., description="Admin email")
+    name: str = Field(..., description="Admin name")
+    phone: Optional[str] = Field(None, description="Admin phone")
+    role: UserRoleEnum = Field(..., description="Admin role")
+    status: UserStatusEnum = Field(..., description="Admin status")
+    permissions: Dict[str, Any] = Field(..., description="Admin permissions")
+    last_login: Optional[datetime] = Field(None, description="Last login timestamp")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+class AgentResponse(BaseModel):
+    """Agent response model"""
+    id: str = Field(..., description="Agent ID")
+    email: str = Field(..., description="Agent email")
+    name: str = Field(..., description="Agent name")
+    phone: Optional[str] = Field(None, description="Agent phone")
+    role: UserRoleEnum = Field(..., description="Agent role")
+    status: UserStatusEnum = Field(..., description="Agent status")
+    assigned_leads_limit: int = Field(..., description="Max leads limit")
+    current_leads_count: int = Field(..., description="Current leads count")
+    is_available: bool = Field(..., description="Is agent available")
+    performance_rating: float = Field(..., description="Performance rating (0-5)")
+    total_leads_handled: int = Field(..., description="Total leads handled")
+    total_conversations: int = Field(..., description="Total conversations")
+    last_activity: Optional[datetime] = Field(None, description="Last activity timestamp")
+    created_at: datetime = Field(..., description="Creation timestamp")
+    updated_at: datetime = Field(..., description="Last update timestamp")
+
+class AgentMessageSend(BaseModel):
+    """Send message from specific agent to lead"""
+    agent_id: str = Field(..., description="Agent ID sending the message", example="550e8400-e29b-41d4-a716-446655440000")
+    lead_phone: str = Field(..., description="Lead phone number", example="917974734809")
+    message: str = Field(..., description="Message content", example="Hello! How can I help you today?")
+    message_type: MessageTypeEnum = Field(MessageTypeEnum.TEXT, description="Message type")
+
+class AgentConversationResponse(BaseModel):
+    """Agent conversation history response"""
+    agent_id: str = Field(..., description="Agent ID")
+    agent_name: str = Field(..., description="Agent name")
+    total_conversations: int = Field(..., description="Total conversations")
+    active_conversations: int = Field(..., description="Active conversations")
+    recent_conversations: List[Dict[str, Any]] = Field(..., description="Recent conversations")
+    performance_stats: Dict[str, Any] = Field(..., description="Performance statistics")
 
 # ============ STANDARD RESPONSE MODELS ============
 

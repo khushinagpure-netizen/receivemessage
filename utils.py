@@ -8,7 +8,7 @@ import logging
 import requests
 from datetime import datetime
 from typing import List, Dict, Any, Tuple, Optional
-from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, GEMINI_API_KEY, SERVICE_STATUS
+from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_KEY, GEMINI_API_KEY, SERVICE_STATUS, ACCESS_TOKEN, PHONE_NUMBER_ID
 
 logger = logging.getLogger(__name__)
 
@@ -795,7 +795,7 @@ async def analyze_sentiment(message: str) -> str:
         prompt = f"One word only - is this positive, negative, or neutral? Message: {message[:200]}"
         
         logger.debug(f"Analyzing sentiment for message: {message[:50]}...")
-        response = model.generate_content(prompt, request_options={"timeout": 5})
+        response = model.generate_content(prompt)
         
         sentiment = response.text.strip().lower()
         logger.debug(f"Gemini response: {sentiment}")
@@ -1051,3 +1051,285 @@ async def get_whatsapp_template_status(
     except Exception as e:
         logger.error(f"Error getting template status: {e}")
         return False, "UNKNOWN"
+
+# ============ ADMIN & AGENT MANAGEMENT ============
+
+async def create_admin(admin_data: Dict[str, Any]) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """Create a new admin"""
+    try:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            logger.warning("Supabase not configured")
+            return False, None
+        
+        headers = get_supabase_headers(use_service_key=True)
+        
+        # Hash password (in production, use proper bcrypt)
+        import hashlib
+        password_hash = hashlib.sha256(admin_data.get("password", "").encode()).hexdigest()
+        
+        admin_record = {
+            "email": admin_data.get("email"),
+            "name": admin_data.get("name"),
+            "phone": admin_data.get("phone"),
+            "password_hash": password_hash,
+            "role": admin_data.get("role", "admin"),
+            "status": "active",
+            "permissions": admin_data.get("permissions", {"all": True}),
+            "created_at": datetime.now().isoformat()
+        }
+        
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/admins",
+            headers={**headers, "Prefer": "return=representation"},
+            json=admin_record,
+            timeout=10
+        )
+        
+        if response.status_code == 201:
+            admin = response.json()[0]
+            logger.info(f"✅ Admin created: {admin.get('email')}")
+            # Remove sensitive data
+            admin.pop("password_hash", None)
+            return True, admin
+        else:
+            logger.error(f"Failed to create admin: {response.text}")
+            return False, None
+            
+    except Exception as e:
+        logger.error(f"Error creating admin: {e}")
+        return False, None
+
+async def create_agent(agent_data: Dict[str, Any], created_by: Optional[str] = None) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    """Create a new agent"""
+    try:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            logger.warning("Supabase not configured")
+            return False, None
+        
+        headers = get_supabase_headers(use_service_key=True)
+        
+        # Hash password (in production, use proper bcrypt)
+        import hashlib
+        password_hash = hashlib.sha256(agent_data.get("password", "").encode()).hexdigest()
+        
+        agent_record = {
+            "email": agent_data.get("email"),
+            "name": agent_data.get("name"),
+            "phone": agent_data.get("phone"),
+            "password_hash": password_hash,
+            "role": agent_data.get("role", "agent"),
+            "status": "active",
+            "assigned_leads_limit": agent_data.get("assigned_leads_limit", 50),
+            "is_available": True,
+            "created_by": created_by,
+            "created_at": datetime.now().isoformat()
+        }
+        
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/agents",
+            headers={**headers, "Prefer": "return=representation"},
+            json=agent_record,
+            timeout=10
+        )
+        
+        if response.status_code == 201:
+            agent = response.json()[0]
+            logger.info(f"✅ Agent created: {agent.get('email')}")
+            # Remove sensitive data
+            agent.pop("password_hash", None)
+            return True, agent
+        else:
+            logger.error(f"Failed to create agent: {response.text}")
+            return False, None
+            
+    except Exception as e:
+        logger.error(f"Error creating agent: {e}")
+        return False, None
+
+async def get_all_admins() -> Tuple[bool, List[Dict[str, Any]]]:
+    """Get all admins"""
+    try:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            logger.warning("Supabase not configured")
+            return False, []
+        
+        headers = get_supabase_headers(use_service_key=True)
+        
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/admins?select=*&order=created_at.desc",
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            admins = response.json()
+            # Remove sensitive data
+            for admin in admins:
+                admin.pop("password_hash", None)
+            return True, admins
+        else:
+            logger.error(f"Failed to get admins: {response.text}")
+            return False, []
+            
+    except Exception as e:
+        logger.error(f"Error getting admins: {e}")
+        return False, []
+
+async def get_all_agents() -> Tuple[bool, List[Dict[str, Any]]]:
+    """Get all agents"""
+    try:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            logger.warning("Supabase not configured")
+            return False, []
+        
+        headers = get_supabase_headers(use_service_key=True)
+        
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/agents?select=*&order=created_at.desc",
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            agents = response.json()
+            # Remove sensitive data
+            for agent in agents:
+                agent.pop("password_hash", None)
+            return True, agents
+        else:
+            logger.error(f"Failed to get agents: {response.text}")
+            return False, []
+            
+    except Exception as e:
+        logger.error(f"Error getting agents: {e}")
+        return False, []
+
+async def send_message_from_agent(agent_id: str, lead_phone: str, message: str) -> Tuple[bool, Optional[str]]:
+    """Send message from specific agent to lead"""
+    try:
+        # Get agent info
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            logger.warning("Supabase not configured")
+            return False, None
+            
+        headers = get_supabase_headers(use_service_key=True)
+        
+        # Get agent details
+        agent_response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/agents?id=eq.{agent_id}&select=*",
+            headers=headers,
+            timeout=10
+        )
+        
+        if agent_response.status_code != 200 or not agent_response.json():
+            logger.error(f"Agent not found: {agent_id}")
+            return False, None
+            
+        agent = agent_response.json()[0]
+        
+        # Send WhatsApp message
+        success, msg_id = send_whatsapp_message(
+            PHONE_NUMBER_ID,
+            ACCESS_TOKEN,
+            lead_phone,
+            message
+        )
+        
+        if success:
+            # Store conversation
+            success_conv, lead = await store_lead(lead_phone)
+            if success_conv:
+                await store_conversation(
+                    lead.get("id"),
+                    lead_phone,
+                    message,
+                    agent.get("name", "Agent"),
+                    direction="outbound",
+                    status="sent"
+                )
+                
+                # Update agent activity
+                requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/agents?id=eq.{agent_id}",
+                    headers=headers,
+                    json={"last_activity": datetime.now().isoformat()},
+                    timeout=10
+                )
+            
+            logger.info(f"✅ Agent {agent.get('name')} sent message to {lead_phone}")
+            return True, msg_id
+        else:
+            logger.error(f"Failed to send message from agent {agent_id}")
+            return False, None
+            
+    except Exception as e:
+        logger.error(f"Error sending message from agent: {e}")
+        return False, None
+
+async def get_agent_conversations(agent_id: str, limit: int = 50) -> Tuple[bool, Dict[str, Any]]:
+    """Get agent conversation history and stats"""
+    try:
+        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+            logger.warning("Supabase not configured")
+            return False, {}
+        
+        headers = get_supabase_headers(use_service_key=True)
+        
+        # Get agent info
+        agent_response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/agents?id=eq.{agent_id}&select=*",
+            headers=headers,
+            timeout=10
+        )
+        
+        if agent_response.status_code != 200 or not agent_response.json():
+            return False, {}
+            
+        agent = agent_response.json()[0]
+        
+        # Get leads assigned to agent
+        leads_response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/leads?assigned_agent_id=eq.{agent_id}&select=*&order=last_contact_at.desc&limit={limit}",
+            headers=headers,
+            timeout=10
+        )
+        
+        leads = leads_response.json() if leads_response.status_code == 200 else []
+        
+        # Get recent conversations
+        conversations = []
+        for lead in leads[:10]:  # Top 10 recent
+            conv_response = requests.get(
+                f"{SUPABASE_URL}/rest/v1/conversations?phone=eq.{lead.get('phone')}&select=*&order=created_at.desc&limit=5",
+                headers=headers,
+                timeout=10
+            )
+            if conv_response.status_code == 200:
+                conv_data = conv_response.json()
+                if conv_data:
+                    conversations.append({
+                        "lead": lead,
+                        "recent_messages": conv_data
+                    })
+        
+        result = {
+            "agent_id": agent_id,
+            "agent_name": agent.get("name"),
+            "total_conversations": agent.get("total_conversations", 0),
+            "active_conversations": len([l for l in leads if l.get("status") not in ["won", "lost"]]),
+            "recent_conversations": conversations,
+            "performance_stats": {
+                "leads_handled": agent.get("total_leads_handled", 0),
+                "current_leads": agent.get("current_leads_count", 0),
+                "leads_limit": agent.get("assigned_leads_limit", 50),
+                "performance_rating": agent.get("performance_rating", 0.0),
+                "is_available": agent.get("is_available", True),
+                "last_activity": agent.get("last_activity")
+            }
+        }
+        
+        return True, result
+        
+    except Exception as e:
+        logger.error(f"Error getting agent conversations: {e}")
+        return False, {}
