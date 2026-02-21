@@ -4,19 +4,32 @@ Configuration and Environment Variables
 
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Load .env file explicitly
+env_path = Path(__file__).parent / ".env"
+load_dotenv(dotenv_path=env_path, override=True)
+
+print(f"🔍 Loading .env from: {env_path}")
+print(f"✓ .env exists: {env_path.exists()}")
 
 # ============ SUPABASE CONFIG ============
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_KEY)
 
+print(f"✓ SUPABASE_URL loaded: {'✅' if SUPABASE_URL else '❌'}")
+print(f"✓ SUPABASE_KEY loaded: {'✅' if SUPABASE_KEY else '❌'}")
+
 # ============ WHATSAPP CONFIG ============
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID", "")
 WABA_ID = os.getenv("WABA_ID", "")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "verify_token_123")
+
+print(f"✓ ACCESS_TOKEN loaded: {'✅' if ACCESS_TOKEN else '❌'}")
+print(f"✓ PHONE_NUMBER_ID loaded: {'✅' if PHONE_NUMBER_ID else '❌'}")
+print(f"✓ WABA_ID loaded: {'✅' if WABA_ID else '❌'}")
 
 # ============ GEMINI CONFIG ============
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
