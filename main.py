@@ -45,6 +45,14 @@ from utils import (
     send_media_message, send_template_message, create_whatsapp_template, update_message_status_advanced, analyze_sentiment,
     get_conversation_sentiment, get_message_stats
 )
+
+# Setup logging (MUST be before using logger)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Import continuous chat for Gemini AI integration
 try:
     from continuous_chat import chat_handler, reload_products
@@ -53,13 +61,6 @@ try:
 except Exception as e:
     logger.warning(f"⚠️ Continuous Chat not available: {e}")
     CONTINUOUS_CHAT_ENABLED = False
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(

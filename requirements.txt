@@ -2,7 +2,7 @@ fastapi
 uvicorn
 pydantic
 requests
-google-generativeai
+google-genai
 python-dotenv
 beautifulsoup4
 supabase

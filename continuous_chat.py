@@ -14,7 +14,7 @@ import logging
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from collections import defaultdict
-import google.generativeai as genai
+from google import genai
 from config import GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
 import requests
 
@@ -22,8 +22,8 @@ import requests
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
+# Configure Gemini client
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Store conversations in memory (can be moved to database)
 conversation_history = defaultdict(list)
@@ -56,7 +56,8 @@ Remember: All Katyayani products are:
 
 class ContinuousChatHandler:
     def __init__(self):
-        self.model = genai.GenerativeModel('gemini-1.5-pro')
+        self.model_name = 'gemini-1.5-pro'
+        self.client = client
         self.conv_history = defaultdict(list)
         self.products_cache = []
         self.load_products()
@@ -161,13 +162,14 @@ Provide a helpful, conversational response."""
             # Build prompt with context
             full_prompt, relevant_products = self.build_full_prompt(user_message, user_id)
             
-            # Generate response
-            response = self.model.generate_content(
-                full_prompt,
-                generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=0.7,
-                )
+            # Generate response using new google.genai API
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=full_prompt,
+                config={
+                    'max_output_tokens': max_tokens,
+                    'temperature': 0.7,
+                }
             )
             
             ai_response = response.text
