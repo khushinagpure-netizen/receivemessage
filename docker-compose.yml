@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  whatsapp-bot:
+    build: .
+    container_name: katyayani-whatsapp-bot
+    ports:
+      - "10000:10000"
+    environment:
+      # Load from .env file
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - ACCESS_TOKEN=${ACCESS_TOKEN}
+      - PHONE_NUMBER_ID=${PHONE_NUMBER_ID}
+      - WABA_ID=${WABA_ID}
+      - VERIFY_TOKEN=${VERIFY_TOKEN}
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    networks:
+      - katyayani-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:10000/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  katyayani-network:
+    driver: bridge

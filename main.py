@@ -45,6 +45,14 @@ from utils import (
     send_media_message, send_template_message, create_whatsapp_template, update_message_status_advanced, analyze_sentiment,
     get_conversation_sentiment, get_message_stats
 )
+# Import continuous chat for Gemini AI integration
+try:
+    from continuous_chat import chat_handler, reload_products
+    CONTINUOUS_CHAT_ENABLED = True
+    logger.info("✅ Continuous Chat (Gemini AI) loaded successfully")
+except Exception as e:
+    logger.warning(f"⚠️ Continuous Chat not available: {e}")
+    CONTINUOUS_CHAT_ENABLED = False
 
 # Setup logging
 logging.basicConfig(
@@ -68,6 +76,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ============ STARTUP & SHUTDOWN EVENTS ============
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on app startup"""
+    logger.info("🚀 Application Starting Up...")
+    
+    # Load products for continuous chat
+    if CONTINUOUS_CHAT_ENABLED:
+        try:
+            reload_products()
+            logger.info("✅ Products loaded for Continuous Chat")
+        except Exception as e:
+            logger.error(f"Error loading products: {e}")
+    
+    logger.info("🚀 Application Ready!")
+    logger.info(f"   - Gemini AI: {'✅ Enabled' if CONTINUOUS_CHAT_ENABLED else '❌ Disabled'}")
+    logger.info(f"   - WhatsApp: {'✅ Configured' if (ACCESS_TOKEN and PHONE_NUMBER_ID) else '❌ Not Configured'}")
+    logger.info(f"   - Database: {'✅ Connected' if SUPABASE_URL else '❌ Not Connected'}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on app shutdown"""
+    logger.info("🛑 Application Shutting Down...")
 
 # ============ RESPONSE HEADER MIDDLEWARE ============
 
@@ -352,12 +385,30 @@ async def process_incoming_message(message: Dict[str, Any]):
         else:
             logger.warning(f" Failed to store incoming message for {phone_clean}")
         
-        # Send automatic default reply
-        default_reply = "Thank you for contacting Katyayani Organics! We will get back to you shortly."
+        # ============ GENERATE RESPONSE USING CONTINUOUS CHAT ============
         
-        logger.debug(f"Sending auto-reply to {phone_clean}...")
+        if CONTINUOUS_CHAT_ENABLED:
+            # Use Continuous Chat with Gemini AI for intelligent responses
+            try:
+                logger.debug(f"Using Continuous Chat to generate response for {phone_clean}")
+                result = chat_handler.handle_product_inquiry(text, phone_clean)
+                reply_text = result.get('response', '')
+                
+                if not reply_text:
+                    logger.warning("No response generated from chat handler")
+                    reply_text = "Thank you for your message! We're processing your inquiry."
+                    
+            except Exception as e:
+                logger.error(f"Error in continuous chat: {e}")
+                reply_text = "Thank you for contacting Katyayani Organics! We will get back to you shortly."
+        else:
+            # Fallback to default reply if continuous chat is disabled
+            reply_text = "Thank you for contacting Katyayani Organics! We will get back to you shortly."
+        
+        logger.debug(f"Generated reply: {reply_text[:100]}...")
+        logger.debug(f"Sending response to {phone_clean}...")
         success, reply_msg_id = utils.send_whatsapp_message(
-            PHONE_NUMBER_ID, ACCESS_TOKEN, phone_clean, default_reply
+            PHONE_NUMBER_ID, ACCESS_TOKEN, phone_clean, reply_text
         )
         
         if success:
@@ -368,7 +419,7 @@ async def process_incoming_message(message: Dict[str, Any]):
             # Store reply using unified function
             reply_success, reply_data = await store_conversation_with_message(
                 phone=phone_clean,
-                message=default_reply,
+                message=reply_text,
                 sender="Katyayani Organics",
                 direction="outbound",
                 status="sent",
@@ -376,14 +427,14 @@ async def process_incoming_message(message: Dict[str, Any]):
                 message_id=reply_msg_id
             )
             
-            utils.add_to_recent_messages(default_reply, "Katyayani Organics", phone_clean, "sent")
+            utils.add_to_recent_messages(reply_text, "Katyayani Organics", phone_clean, "sent")
             
             if reply_success:
-                logger.info(f"✓ Auto-reply sent and stored for {phone_clean} (ID: {reply_msg_id})")
+                logger.info(f"✓ AI response sent and stored for {phone_clean} (ID: {reply_msg_id})")
             else:
-                logger.warning(f" Auto-reply sent but storage failed for {phone_clean}")
+                logger.warning(f" AI response sent but storage failed for {phone_clean}")
         else:
-            logger.warning(f" Failed to send auto-reply to {phone_clean}")
+            logger.warning(f" Failed to send AI response to {phone_clean}")
         
         await utils.log_api_call("/webhook", "POST", phone_clean, 200)
         
